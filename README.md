@@ -254,6 +254,8 @@ LLM
 
 ## 六、MCP 架构
 
+StoreMind Agent 通过 `MCPClient` 连接 FastMCP Server，MCP Server 负责将 Java 后端的业务能力封装成 Agent 可以调用的工具。
+
 ```mermaid
 flowchart LR
 
@@ -263,7 +265,7 @@ flowchart LR
 
     MCPServer["FastMCP<br/>MCP Server"]
 
-    API["Java API / Gateway"]
+    Gateway["Java Gateway"]
 
     Store["门店服务"]
     Product["商品服务"]
@@ -273,34 +275,254 @@ flowchart LR
     Agent --> MCPClient
     MCPClient -->|MCP Protocol| MCPServer
 
-    MCPServer --> API
+    MCPServer -->|HTTP + Authorization| Gateway
 
-    API --> Store
-    API --> Product
-    API --> Inventory
-    API --> Order
+    Gateway --> Store
+    Gateway --> Product
+    Gateway --> Inventory
+    Gateway --> Order
 ```
 
-当前主要 MCP Tool：
+### 当前 MCP Tool
+
+目前 MCP Server 提供以下 5 个工具：
+
+| Tool                          | 功能                 | 操作类型 |
+| ----------------------------- | ------------------ | ---- |
+| `get_store_sales_performance` | 查询指定门店在指定时间段内的销售情况 | 查询   |
+| `get_store_inventory`         | 查询指定门店的库存情况        | 查询   |
+| `store_inbound`               | 向指定门店批量进货          | 修改   |
+| `conditional_search_stores`   | 根据省、市、区等条件分页查询门店   | 查询   |
+| `check_product_list`          | 根据商品分类分页查询可供进货的商品  | 查询   |
+
+### 1. get_store_sales_performance
+
+根据门店编号查询指定时间范围内的销售情况。
+
+参数：
 
 ```text
-get_store_sales_performance
-        ↓
-查询门店销售情况
-
-get_store_inventory
-        ↓
-查询门店库存
-
-store_inbound
-        ↓
-门店商品入库
+store_code
+begin_time
+end_time
 ```
 
-其中：
+其中 `begin_time` 和 `end_time` 为可选参数。
 
-* 查询类 Tool 可以直接调用
-* 修改业务数据的 Tool 需要经过用户确认
+调用流程：
+
+```text
+Agent
+ ↓
+get_store_sales_performance
+ ↓
+MCP Server
+ ↓
+GET /stores/sales/performance/{store_code}
+ ↓
+Java Gateway
+ ↓
+门店销售数据
+```
+
+### 2. get_store_inventory
+
+根据门店编号查询当前库存情况。
+
+参数：
+
+```text
+store_code
+```
+
+调用流程：
+
+```text
+Agent
+ ↓
+get_store_inventory
+ ↓
+MCP Server
+ ↓
+GET /stores/inventory/{store_code}
+ ↓
+Java Gateway
+ ↓
+库存数据
+```
+
+返回的库存信息可以用于 Agent 判断商品库存状态，并结合销售数据进行补货分析。
+
+### 3. store_inbound
+
+向指定门店批量进货。
+
+参数：
+
+```text
+store_id
+product_list
+```
+
+其中 `product_list` 中每个商品包含：
+
+```json
+{
+    "product_id": 2,
+    "quantity": 10
+}
+```
+
+该工具会调用 Java 后端：
+
+```text
+POST /inventory/inbound
+```
+
+并设置：
+
+```json
+{
+    "recordChangeType": 0
+}
+```
+
+由于该工具会直接修改门店库存，因此属于**业务修改工具**，需要经过用户确认后才能执行。
+
+调用流程：
+
+```text
+Agent
+ ↓
+store_inbound
+ ↓
+需要用户确认
+ ↓
+用户确认
+ ↓
+MCP Server
+ ↓
+POST /inventory/inbound
+ ↓
+Java Gateway
+ ↓
+Inventory Service
+ ↓
+库存增加
+```
+
+### 4. conditional_search_stores
+
+根据条件分页查询门店信息。
+
+参数：
+
+```text
+page_num
+province
+city
+district
+```
+
+其中省、市、区均为可选查询条件。
+
+调用接口：
+
+```text
+GET /stores/list
+```
+
+该工具主要用于帮助 Agent 根据用户提出的地区条件查找门店。
+
+例如：
+
+```text
+查询天津市北辰区有哪些门店
+        ↓
+conditional_search_stores
+        ↓
+获取符合条件的门店
+```
+
+### 5. check_product_list
+
+分页查询可供进货的商品。
+
+参数：
+
+```text
+category_id
+page_num
+```
+
+商品分类：
+
+```text
+0 - 无条件全查
+1 - 饮料
+2 - 零食
+3 - 日用品
+4 - 粮油
+5 - 家具
+6 - 化妆品
+7 - 服装
+8 - 其他
+```
+
+调用接口：
+
+```text
+GET /products/list
+```
+
+该工具可以与 `store_inbound` 配合使用。
+
+例如：
+
+```text
+用户：给门店补一些饮料
+        ↓
+check_product_list
+        ↓
+查询饮料商品
+        ↓
+get_store_inventory
+        ↓
+分析当前库存
+        ↓
+Agent 给出补货建议
+        ↓
+用户确认
+        ↓
+store_inbound
+        ↓
+完成入库
+```
+
+### MCP 鉴权
+
+MCP Server 调用 Java Gateway 时，会从 MCP 请求上下文中获取用户传递的 `Authorization`。
+
+```text
+Vue
+ ↓
+Authorization: Bearer <JWT>
+ ↓
+FastAPI Agent
+ ↓
+MCPClient
+ ↓
+MCP Server
+ ↓
+获取 Authorization
+ ↓
+Java Gateway
+ ↓
+JWT 鉴权
+```
+
+因此 Agent 调用 MCP Tool 时，用户身份能够继续传递到 Java 后端的鉴权体系中。
+
 
 ## 七、操作确认机制
 
