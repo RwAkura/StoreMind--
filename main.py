@@ -6,9 +6,9 @@ from starlette.responses import StreamingResponse
 
 from fastapi import FastAPI,Header
 from fastapi.middleware.cors import CORSMiddleware
-from agent.agent import ReactAgent,LLMClient,MCPClient,MemoryManager
-from agent.database import Database
-from JwtUtil import get_user_id_from_token
+from Agent.agent import ReactAgent,LLMClient,MCPClient,MemoryManager
+from Agent.database import Database
+from python.JwtUtil import get_user_id_from_token
 
 database = Database()
 

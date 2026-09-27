@@ -1,12 +1,12 @@
 import json
 from uuid import uuid4
 
-from agent.llm import LLMClient
-from agent.memory_manager import MemoryManager
+from python.Agent.agent import LLMClient
+from python.Memory.memory_manager import MemoryManager
 
-from JwtUtil import get_user_id_from_token
+from python.JwtUtil import get_user_id_from_token
 
-from MCP.MCP_client import MCPClient
+from python.MCP.MCP_client import MCPClient
 
 
 confirmation_tools_name = [
