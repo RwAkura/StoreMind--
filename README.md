@@ -506,7 +506,7 @@ MCP Server 调用 Java Gateway 时，会从 MCP 请求上下文中获取用户�
 ```text
 Vue
  ↓
-Authorization: Bearer <JWT>
+Authorization: <JWT>
  ↓
 FastAPI Agent
  ↓
